@@ -17,6 +17,14 @@ const MjpegProxy = require('./server/utils/mjpegproxy').MjpegProxy;
 const intercept = require("intercept-stdout");
 const config = require('./config.json');
 const configHelper = require('./server/utils/configHelper')
+let {PythonShell} = require('python-shell');
+let options = {
+  mode: 'text',
+  pythonPath: '/usr/local/bin/python3',
+  pythonOptions: ['-u'], // get print results in real-time
+  scriptPath: config.PLATFORM_PATH,
+  args:['-s', 'metaout', 'video']
+};
 
 if(process.env.npm_package_version !== config.OPENDATACAM_VERSION) {
   console.log('-----------------------------------')
@@ -48,8 +56,16 @@ if(SIMULATION_MODE) {
   console.log('-----------------------------------')
 }
 
-// Init processes
-YOLO.init(SIMULATION_MODE);
+if (config.PLATFORM !== 'depthai'){
+  // Init processes
+  YOLO.init(SIMULATION_MODE);
+}else{
+  PythonShell.run('depthai-demo.py', options, function(err){
+    if (err) throw err;
+      console.log('running');
+  })
+}
+
 
 // Init connection to db
 DBManager.init().then(
@@ -63,6 +79,15 @@ DBManager.init().then(
 
 // TODO Move the stdout code into it's own module
 var videoResolution = null;
+
+if (config.PLATFORM === 'depthai'){
+  videoResolution = {
+  w: 1280,
+  h: 720
+  }
+  Opendatacam.setVideoResolution(videoResolution)
+}
+
 
 if(SIMULATION_MODE) {
   videoResolution = {
@@ -80,7 +105,7 @@ var unhook_intercept = intercept(function(text) {
   // Hacky way to get the video resolution from YOLO
   // We parse the stdout looking for "Video stream: 640 x 480"
   // alternative would be to add this info to the JSON stream sent by YOLO, would need to send a PR to https://github.com/alexeyab/darknet
-  if(stdoutText.indexOf('Video stream:') > -1) {
+  if(config.PLATFORM !== 'depthai' && stdoutText.indexOf('Video stream:') > -1) {
     var splitOnStream = stdoutText.toString().split("stream:")
     var ratio = splitOnStream[1].split("\n")[0];
     videoResolution = {
@@ -108,8 +133,9 @@ app.prepare()
 
   // This render pages/index.js for a request to /
   express.get('/', (req, res) => {
-
-    YOLO.start(); // Inside yolo process will check is started
+    if (config.PLATFORM !== 'depthai'){
+      YOLO.start(); // Inside yolo process will check is started
+    }
 
     const urlData = getURLData(req);
     Opendatacam.listenToYOLO(urlData);
@@ -131,7 +157,9 @@ app.prepare()
    *
   */
   express.get('/start', (req, res) => {
-    YOLO.start(); // Inside yolo process will check is started
+    if (config.PLATFORM !== 'depthai'){
+      YOLO.start(); // Inside yolo process will check is started
+    }
     const urlData = getURLData(req);
     Opendatacam.listenToYOLO(urlData);
     res.sendStatus(200)
@@ -940,73 +968,69 @@ app.prepare()
   // API to read opendatacam_videos directory and return list of videos available
   // TODO JSDOC
   // Get video files available in opendatacam_videos directory
-  express.get('/files', (req, res) => {
-    FileSystemManager.getFiles().then((files) => {
-      res.json(files);
-    }, (error) => {
-      res.sendStatus(500).send(error);
-    });
-  });
-
-
-  var storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-      cb(null, FileSystemManager.getFilesDirectoryPath())
-    },
-    filename: function (req, file, cb) {
-      cb(null, file.originalname)
-    }
-  })
-  var uploadMulter = multer({ 
-    storage: storage, 
-    fileFilter: function (req, file, cb) {
-      if (!file.originalname.match(/\.(mp4|avi|mov)$/)) {
-        return cb(new Error('Only video files are allowed!'));
-      }
-      cb(null, true);
-    } 
-  }).single('video')
-
-  // API to Upload file and restart yolo on that file
-  // TODO JSDOC
-  // TODO Only upload file here and then add another endpoint to restart YOLO on a given file
-  express.post('/files', function (req, res, next) {
-    uploadMulter(req, res, function (err) {
-      console.log('uploadMulter callback')
-      if(err) {
-        console.log(err);
-        res.sendStatus(500);
-        return;
-      }
-
-      // Everything went fine.
-      console.log('File upload done');
-
-
-      // Restart YOLO
-      console.log('Stop YOLO');
-      Opendatacam.stopRecording();
-      YOLO.stop().then(() => {
-        console.log('YOLO stopped');
-        // TODO set run on file
-        console.log(req.file.path);
-        YOLO.init(false, req.file.path);
-        YOLO.start();
-        Opendatacam.recordingStatus.filename = req.file.filename;
-      },(error) => {
-        console.log('YOLO does not stop')
-        console.log(error);
+  if (config.PLATFORM !== 'depthai'){
+    express.get('/files', (req, res) => {
+      FileSystemManager.getFiles().then((files) => {
+        res.json(files);
+      }, (error) => {
+        res.sendStatus(500).send(error);
       });
-
-      res.json(req.file.path);
-
+    });
 
 
+    var storage = multer.diskStorage({
+      destination: function (req, file, cb) {
+        cb(null, FileSystemManager.getFilesDirectoryPath())
+      },
+      filename: function (req, file, cb) {
+        cb(null, file.originalname)
+      }
     })
-  })
+    var uploadMulter = multer({ 
+      storage: storage, 
+      fileFilter: function (req, file, cb) {
+        if (!file.originalname.match(/\.(mp4|avi|mov)$/)) {
+          return cb(new Error('Only video files are allowed!'));
+        }
+        cb(null, true);
+      } 
+    }).single('video')
 
-  
+    // API to Upload file and restart yolo on that file
+    // TODO JSDOC
+    // TODO Only upload file here and then add another endpoint to restart YOLO on a given file
+    express.post('/files', function (req, res, next) {
+      uploadMulter(req, res, function (err) {
+        console.log('uploadMulter callback')
+        if(err) {
+          console.log(err);
+          res.sendStatus(500);
+          return;
+        }
 
+        // Everything went fine.
+        console.log('File upload done');
+
+
+        // Restart YOLO
+        console.log('Stop YOLO');
+        Opendatacam.stopRecording();
+        YOLO.stop().then(() => {
+          console.log('YOLO stopped');
+          // TODO set run on file
+          console.log(req.file.path);
+          YOLO.init(false, req.file.path);
+          YOLO.start();
+          Opendatacam.recordingStatus.filename = req.file.filename;
+        },(error) => {
+          console.log('YOLO does not stop')
+          console.log(error);
+        });
+
+        res.json(req.file.path);
+      })
+    })
+  }
 
   /**
    * @api {post} /ui Save UI settings

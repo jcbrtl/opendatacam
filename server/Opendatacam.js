@@ -40,7 +40,7 @@ const initialState = {
     currentFPS: 0,
     recordingId: null,
     dateStarted: null,
-    filename: ''
+    filename: 'test'
   },
   uiSettings: {
     counterEnabled: true,
@@ -459,7 +459,7 @@ module.exports = {
         trackerSummary: this.getTrackerSummary(),
         videoResolution: Opendatacam.videoResolution, 
         appState: {
-          yoloStatus: YOLO.getStatus(),
+          yoloStatus: true,
           isListeningToYOLO: Opendatacam.isListeningToYOLO,
           recordingStatus: Opendatacam.recordingStatus
         }
@@ -536,7 +536,10 @@ module.exports = {
     Opendatacam.recordingStatus.isRecording = true;
     Opendatacam.recordingStatus.dateStarted = new Date();
     Opendatacam.totalItemsTracked = 0;
-    const filename = isFile ? YOLO.getVideoParams().split('/').pop() : '';
+    if(config.PLATFORM !== 'depthai'){
+      const filename = isFile ? YOLO.getVideoParams().split('/').pop() : '';
+    } 
+    const filename = "test"
     Opendatacam.recordingStatus.filename = filename;
 
     // Store lowest ID of currently tracked item when start recording 
@@ -658,6 +661,7 @@ module.exports = {
             }
             detectionsOfThisFrame = JSON.parse(message);
             message = '';
+            console.log(detectionsOfThisFrame.objects);
             self.updateWithNewFrame(detectionsOfThisFrame.objects, detectionsOfThisFrame.frame_id);
           } catch (error) {
             console.log("Error with message send by YOLO, not valid JSON")
@@ -738,10 +742,14 @@ module.exports = {
 
   requestFileRecording() {
     Opendatacam.recordingStatus.requestedFileRecording = true;
-    const filename = YOLO.getVideoParams().split('/').pop();
+    if(config.PLATFORM !== 'depthai'){
+      const filename = YOLO.getVideoParams().split('/').pop();
+    }
     Opendatacam.recordingStatus.filename = filename;
     console.log('Ask YOLO to restart to record on a file ');
-    YOLO.restart();
+    if(config.PLATFORM !== 'depthai'){
+      YOLO.restart();
+    } 
   },
 
   getCurrentRecordingId() {
@@ -754,7 +762,7 @@ module.exports = {
       trackerSummary: this.getTrackerSummary(),
       videoResolution: Opendatacam.videoResolution, 
       appState: {
-        yoloStatus: YOLO.getStatus(),
+        yoloStatus: true,
         isListeningToYOLO: Opendatacam.isListeningToYOLO,
         recordingStatus: Opendatacam.recordingStatus
       }
